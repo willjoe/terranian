@@ -1,5 +1,6 @@
 import type { BBox } from '@/geo/coords'
 import { fetchOverpassData, type OverpassElement, type OverpassResponse } from '@/data/overpass/client'
+import { cacheGet, cacheSet, OVERPASS_TILE_STORE } from '@/data/cache/indexedDbCache'
 
 /**
  * The world is divided into a fixed grid, independent of where the user
@@ -11,9 +12,17 @@ import { fetchOverpassData, type OverpassElement, type OverpassResponse } from '
  */
 const TILE_SIZE_DEG = 0.009
 
+/** OSM data is user-edited and changes over time, so persisted tiles expire rather than being kept forever. */
+const TILE_TTL_MS = 7 * 24 * 60 * 60 * 1000
+
 interface TileCoord {
   row: number
   col: number
+}
+
+interface CachedTile {
+  elements: OverpassElement[]
+  cachedAt: number
 }
 
 function tileCoordFor(lat: number, lon: number): TileCoord {
@@ -45,36 +54,43 @@ function tilesCoveringBBox(bbox: BBox): TileCoord[] {
   return tiles
 }
 
-/**
- * In-memory, per-session cache: tile key -> the elements Overpass returned
- * for that tile. Resets on page reload — this is about not re-fetching the
- * same ground twice while generating multiple nearby locations in one
- * sitting, not long-term persistence (OSM data changes over time, and a
- * stale disk cache would need its own invalidation story).
- */
-const tileCache = new Map<string, OverpassElement[]>()
+/** In-memory, first-level cache — avoids even an IndexedDB round-trip for a tile already loaded this session. */
+const memoryCache = new Map<string, OverpassElement[]>()
+
+async function loadTile(t: TileCoord): Promise<OverpassElement[]> {
+  const key = tileKey(t)
+
+  const inMemory = memoryCache.get(key)
+  if (inMemory) return inMemory
+
+  const persisted = await cacheGet<CachedTile>(OVERPASS_TILE_STORE, key)
+  if (persisted && Date.now() - persisted.cachedAt < TILE_TTL_MS) {
+    memoryCache.set(key, persisted.elements)
+    return persisted.elements
+  }
+
+  const response = await fetchOverpassData(tileBBox(t))
+  memoryCache.set(key, response.elements)
+  void cacheSet<CachedTile>(OVERPASS_TILE_STORE, key, { elements: response.elements, cachedAt: Date.now() })
+  return response.elements
+}
 
 /**
  * Fetches Overpass data for `bbox`, reusing already-fetched tiles from
- * earlier generations instead of re-querying ground we've already covered.
- * A single OSM way spanning multiple tiles comes back (in full) from each
- * tile query that touches it, so results are deduplicated by element id
- * when tiles are merged.
+ * earlier generations — both this session's in-memory cache and, across
+ * page reloads/sessions, the persisted IndexedDB cache (see
+ * data/cache/indexedDbCache.ts) — instead of re-querying ground we've
+ * already covered. A single OSM way spanning multiple tiles comes back
+ * (in full) from each tile query that touches it, so results are
+ * deduplicated by element id when tiles are merged.
  */
 export async function fetchOverpassDataCached(bbox: BBox): Promise<OverpassResponse> {
   const tiles = tilesCoveringBBox(bbox)
-  const missing = tiles.filter((t) => !tileCache.has(tileKey(t)))
-
-  if (missing.length > 0) {
-    const fetched = await Promise.all(missing.map((t) => fetchOverpassData(tileBBox(t))))
-    missing.forEach((t, i) => tileCache.set(tileKey(t), fetched[i].elements))
-  }
+  const allElements = await Promise.all(tiles.map(loadTile))
 
   const byId = new Map<string, OverpassElement>()
-  for (const t of tiles) {
-    for (const el of tileCache.get(tileKey(t)) ?? []) {
-      byId.set(`${el.type}/${el.id}`, el)
-    }
+  for (const elements of allElements) {
+    for (const el of elements) byId.set(`${el.type}/${el.id}`, el)
   }
 
   return { elements: [...byId.values()] }
