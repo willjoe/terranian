@@ -11,7 +11,10 @@ export function App() {
   return (
     <div className="app-layout">
       <aside className="app-sidebar">
-        <h1>terranian</h1>
+        <div className="app-brand">
+          <img src={`${import.meta.env.BASE_URL}logo.png`} alt="" className="app-logo" />
+          <h1>terranian</h1>
+        </div>
         <p className="app-tagline">Pick a place, generate a theoretical 3D world from real map data.</p>
         <LocationSearch />
         <div className="app-map">

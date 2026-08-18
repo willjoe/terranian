@@ -42,6 +42,19 @@ body,
   overflow-y: auto;
 }
 
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.app-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
 .app-sidebar h1 {
   margin: 0;
   font-size: 22px;
