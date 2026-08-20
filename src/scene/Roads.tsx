@@ -21,19 +21,26 @@ import type { Road, TerrainPatch } from '@/world/schema'
  * still be covered by water's own depth-tested draw if they incidentally
  * overlap, while a bridge road painted *after* water always wins.
  *
- * All six meshes render with depthTest/depthWrite off. The Y-epsilon
- * draping in generation/roadGeometry.ts only guarantees roads sit above
- * terrain at the exact points *roads themselves* sample — but land-use
- * polygons (and the terrain mesh's own large triangles) sample terrain
- * height at different, more sparsely-spaced points, so on real sloped
- * ground their interpolated surface can still poke up above a road that
- * cuts across the same slope, no matter how big that epsilon is made.
- * Skipping the depth test makes roads win unconditionally against
- * terrain/land-use instead of only "usually": since those always paint
- * first (see renderOrder.ts) and roads don't write depth, buildings/trees
- * painted afterward still correctly test against the real terrain depth
- * beneath them, so a building still properly occludes a road running
- * behind it.
+ * All six meshes render with depthTest off. The Y-epsilon draping in
+ * generation/roadGeometry.ts only guarantees roads sit above terrain at
+ * the exact points *roads themselves* sample — but land-use polygons
+ * (and the terrain mesh's own large triangles) sample terrain height at
+ * different, more sparsely-spaced points, so on real sloped ground their
+ * interpolated surface can still poke up above a road that cuts across
+ * the same slope, no matter how big that epsilon is made. Skipping the
+ * depth test makes roads win unconditionally against terrain/land-use
+ * instead of only "usually": since those always paint first (see
+ * renderOrder.ts) and non-bridge roads don't write depth either, the
+ * buildings/trees painted afterward still correctly test against the
+ * real terrain depth beneath them, so a building still properly occludes
+ * a non-bridge road running behind it.
+ *
+ * Bridge roads are the one exception: they *do* write depth, using their
+ * real (often tens of meters, per generation/roadGeometry.ts's
+ * bridgeHeightAt) elevation above terrain. A road arching over a
+ * building only visibly clears it if buildings drawn afterward lose
+ * their normal depth test at those pixels — which requires the bridge to
+ * have actually written its true, higher depth there first.
  */
 export function Roads({ roads, terrain }: { roads: Road[]; terrain: TerrainPatch }) {
   if (roads.length === 0) return null
@@ -61,7 +68,7 @@ function RoadOutline({ roads, terrain, bridgesOnly }: { roads: Road[]; terrain: 
       receiveShadow
       renderOrder={bridgesOnly ? RENDER_ORDER.bridgeRoadOutline : RENDER_ORDER.roadOutline}
     >
-      <meshStandardMaterial color="#9a9a9a" side={DoubleSide} depthTest={false} depthWrite={false} />
+      <meshStandardMaterial color="#9a9a9a" side={DoubleSide} depthTest={false} depthWrite={bridgesOnly} />
     </mesh>
   )
 }
@@ -73,7 +80,7 @@ function RoadSurface({ roads, terrain, bridgesOnly }: { roads: Road[]; terrain: 
 
   return (
     <mesh geometry={geometry} receiveShadow renderOrder={bridgesOnly ? RENDER_ORDER.bridgeRoads : RENDER_ORDER.roads}>
-      <meshStandardMaterial color="#333333" side={DoubleSide} depthTest={false} depthWrite={false} />
+      <meshStandardMaterial color="#333333" side={DoubleSide} depthTest={false} depthWrite={bridgesOnly} />
     </mesh>
   )
 }
@@ -96,7 +103,7 @@ function RoadCenterline({
       geometry={geometry}
       renderOrder={bridgesOnly ? RENDER_ORDER.bridgeRoadCenterline : RENDER_ORDER.roadCenterline}
     >
-      <meshStandardMaterial color="#ffd54a" side={DoubleSide} depthTest={false} depthWrite={false} />
+      <meshStandardMaterial color="#ffd54a" side={DoubleSide} depthTest={false} depthWrite={bridgesOnly} />
     </mesh>
   )
 }

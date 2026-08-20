@@ -1,5 +1,6 @@
 import { latLonToLocal, type LatLon, type LocalPoint } from '@/geo/coords'
 import { clipPolygonToRadius, clipPolylineToRadius } from '@/geo/circleClip'
+import { pointInPolygon } from '@/geo/pointInPolygon'
 import type { OsmWay, ParsedOsmData } from '@/data/types'
 import type { Building, LandUseArea, Road, TerrainPatch, WorldModel } from '@/world/schema'
 import {
@@ -12,6 +13,7 @@ import {
 } from '@/world/tags'
 import { scatterTrees } from '@/world/treeScatter'
 import { buildWaterPolygonsFromCoastline } from '@/world/coastline'
+import { computeBridgeSpans } from '@/world/bridges'
 
 function wayToLocalPolygon(origin: LatLon, way: OsmWay): LocalPoint[] {
   return way.geometry.map((ll) => latLonToLocal(origin, ll))
@@ -99,17 +101,6 @@ function centroidOf(polygon: LocalPoint[]): LocalPoint {
   return { x: x / polygon.length, y: y / polygon.length }
 }
 
-function pointInPolygon(point: LocalPoint, polygon: LocalPoint[]): boolean {
-  let inside = false
-  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    const { x: xi, y: yi } = polygon[i]
-    const { x: xj, y: yj } = polygon[j]
-    const crosses = yi > point.y !== yj > point.y
-    if (crosses && point.x < ((xj - xi) * (point.y - yi)) / (yj - yi) + xi) inside = !inside
-  }
-  return inside
-}
-
 /** Fraction of buildings whose centroid falls inside `rings`, in [0, 1]. */
 function fractionOfBuildingsInside(buildings: Building[], rings: LocalPoint[][]): number {
   if (buildings.length === 0) return 0
@@ -161,6 +152,16 @@ export function buildWorldModel(origin: LatLon, parsed: ParsedOsmData, terrain: 
     ...buildCoastlineWater(origin, parsed.coastline, radius, buildings),
   ]
   const trees = scatterTrees(landUse.filter((area) => area.kind === 'forest'))
+
+  // A road becomes a bridge wherever its centerline geometrically crosses
+  // water or a building footprint, independent of whether OSM tagged it
+  // `bridge=yes` (many real bridges aren't tagged, or the tag is missing
+  // on a specific way segment) — see world/bridges.ts.
+  const bridgeSpansByRoadId = computeBridgeSpans(roads, buildings, landUse)
+  for (const road of roads) {
+    const spans = bridgeSpansByRoadId.get(road.id)
+    if (spans && spans.length > 0) road.bridgeSpans = spans
+  }
 
   return {
     origin,

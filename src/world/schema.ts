@@ -41,12 +41,33 @@ export type RoadKind =
   | 'footway'
   | 'other'
 
+/**
+ * A single elevated arch along a road's centerline, computed in
+ * world/bridges.ts wherever the road geometrically crosses water or a
+ * building footprint. Distances are arc-length meters from the start of
+ * `Road.centerline` (0 = first point). The profile is a single ramp up
+ * from `rampStart` to `plateauStart`, a flat plateau at `heightMeters`
+ * from `plateauStart` to `plateauEnd`, then a single ramp back down to
+ * `rampEnd` — one continuous rise and one continuous descent, never more
+ * than one hump, per the real shape of a bridge.
+ */
+export interface BridgeSpan {
+  rampStart: number
+  rampEnd: number
+  plateauStart: number
+  plateauEnd: number
+  /** meters of extra height above the normal terrain-drape height, at the plateau */
+  heightMeters: number
+}
+
 export interface Road {
   id: string
   centerline: LocalPoint[]
   widthMeters: number
   kind: RoadKind
   tags: Record<string, string>
+  /** present only where this road needs to arch above water or a building — see world/bridges.ts */
+  bridgeSpans?: BridgeSpan[]
 }
 
 export type LandUseKind = 'forest' | 'farmland' | 'water' | 'residential' | 'grass' | 'other'

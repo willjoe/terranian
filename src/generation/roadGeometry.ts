@@ -3,6 +3,7 @@ import type { Road, TerrainPatch } from '@/world/schema'
 import { sampleTerrainHeight } from '@/generation/sampleHeight'
 import { toThreeVec3 } from '@/generation/toThreeSpace'
 import type { GeometryData } from '@/generation/geometryTypes'
+import { bridgeHeightAt } from '@/world/bridges'
 
 /**
  * Draped-layer height stacking (kept in sync with LAND_USE_Y_EPSILON /
@@ -19,11 +20,15 @@ import type { GeometryData } from '@/generation/geometryTypes'
  *
  * Water is a special case, not just another rung on this ladder: a real
  * road only belongs above water where it's actually a bridge (OSM's
- * `bridge` tag — see isBridgeRoad below). scene/Roads.tsx renders
+ * `bridge` tag, or a geometrically-detected water/building crossing —
+ * see isBridgeRoad below and world/bridges.ts). scene/Roads.tsx renders
  * bridge and non-bridge roads as separate mesh sets so non-bridge roads
  * paint *before* water (letting water's normal depth test show through
  * over any incidental overlap) while bridge roads paint *after* it
- * (always winning, like the rest of this stack).
+ * (always winning, like the rest of this stack) — and where a road's
+ * bridgeSpans give it a genuine elevated arch (see bridgeHeightAt calls
+ * below), that real height difference is usually enough on its own to
+ * correctly clear whatever it's crossing.
  */
 const ROAD_OUTLINE_Y_EPSILON = 0.35
 const ROAD_SURFACE_Y_EPSILON = 0.7
@@ -41,10 +46,16 @@ function isDecoratedRoad(road: Road): boolean {
   return road.kind !== 'footway' && road.kind !== 'path'
 }
 
-/** OSM's `bridge` tag (any value other than absent/"no") marks a way as physically elevated above whatever it crosses — see scene/Roads.tsx for why that matters for draw order against water. */
+/**
+ * A road counts as a bridge if OSM tagged it so (any `bridge` value other
+ * than absent/"no"), or if world/bridges.ts detected its centerline
+ * actually crossing water or a building footprint and computed a
+ * bridgeSpans elevation profile for it — see scene/Roads.tsx for why that
+ * matters for draw order against water.
+ */
 function isBridgeRoad(road: Road): boolean {
   const bridge = road.tags.bridge
-  return bridge !== undefined && bridge !== 'no'
+  return (bridge !== undefined && bridge !== 'no') || (road.bridgeSpans !== undefined && road.bridgeSpans.length > 0)
 }
 
 function closedRing(positions: number[], normals: number[], uvs: number[], indices: number[]) {
@@ -98,6 +109,7 @@ function buildRibbonGeometry(
     const left: LocalPoint[] = []
     const right: LocalPoint[] = []
     const heights: number[] = []
+    let distanceSoFar = 0
 
     for (let i = 0; i < line.length; i++) {
       const prev = line[Math.max(0, i - 1)]
@@ -109,9 +121,10 @@ function buildRibbonGeometry(
       const ny = dx / len
 
       const p = line[i]
+      if (i > 0) distanceSoFar += Math.hypot(p.x - line[i - 1].x, p.y - line[i - 1].y)
       left.push({ x: p.x + nx * halfWidth, y: p.y + ny * halfWidth })
       right.push({ x: p.x - nx * halfWidth, y: p.y - ny * halfWidth })
-      heights.push(sampleTerrainHeight(terrain, p.x, p.y) + yEpsilon)
+      heights.push(sampleTerrainHeight(terrain, p.x, p.y) + yEpsilon + bridgeHeightAt(road.bridgeSpans, distanceSoFar))
     }
 
     for (let i = 0; i < line.length - 1; i++) {
@@ -166,12 +179,12 @@ export function buildRoadOutlineGeometry(roads: Road[], terrain: TerrainPatch, b
   )
 }
 
-/** Walks a polyline by arc length, invoking `onDash` with each sub-segment that falls within an "on" dash period. */
+/** Walks a polyline by arc length, invoking `onDash` with each sub-segment (and its arc-length distance from the line's start) that falls within an "on" dash period. */
 function walkDashSegments(
   line: LocalPoint[],
   dashLength: number,
   gapLength: number,
-  onDash: (a: LocalPoint, b: LocalPoint) => void,
+  onDash: (a: LocalPoint, aDistance: number, b: LocalPoint, bDistance: number) => void,
 ) {
   const period = dashLength + gapLength
   let distanceSoFar = 0
@@ -196,7 +209,7 @@ function walkDashSegments(
       if (isOn) {
         const a = { x: p0.x + dirX * segPos, y: p0.y + dirY * segPos }
         const b = { x: p0.x + dirX * (segPos + stepLen), y: p0.y + dirY * (segPos + stepLen) }
-        onDash(a, b)
+        onDash(a, distanceSoFar, b, distanceSoFar + stepLen)
       }
 
       segPos += stepLen
@@ -218,15 +231,15 @@ export function buildRoadCenterlineGeometry(roads: Road[], terrain: TerrainPatch
     if (!isDecoratedRoad(road) || isBridgeRoad(road) !== bridgesOnly) continue
     if (road.centerline.length < 2) continue
 
-    walkDashSegments(road.centerline, CENTERLINE_DASH_LENGTH_M, CENTERLINE_GAP_LENGTH_M, (a, b) => {
+    walkDashSegments(road.centerline, CENTERLINE_DASH_LENGTH_M, CENTERLINE_GAP_LENGTH_M, (a, aDistance, b, bDistance) => {
       const dx = b.x - a.x
       const dy = b.y - a.y
       const len = Math.hypot(dx, dy) || 1
       const nx = -dy / len
       const ny = dx / len
 
-      const ha = sampleTerrainHeight(terrain, a.x, a.y) + ROAD_CENTERLINE_Y_EPSILON
-      const hb = sampleTerrainHeight(terrain, b.x, b.y) + ROAD_CENTERLINE_Y_EPSILON
+      const ha = sampleTerrainHeight(terrain, a.x, a.y) + ROAD_CENTERLINE_Y_EPSILON + bridgeHeightAt(road.bridgeSpans, aDistance)
+      const hb = sampleTerrainHeight(terrain, b.x, b.y) + ROAD_CENTERLINE_Y_EPSILON + bridgeHeightAt(road.bridgeSpans, bDistance)
 
       ring.pushQuad(
         { x: a.x + nx * halfWidth, y: a.y + ny * halfWidth },
