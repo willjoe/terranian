@@ -1,5 +1,5 @@
 import type { LocalPoint } from '@/geo/coords'
-import type { Road, RoadKind, TerrainPatch } from '@/world/schema'
+import type { Road, TerrainPatch } from '@/world/schema'
 import { sampleTerrainHeight } from '@/generation/sampleHeight'
 import { toThreeVec3 } from '@/generation/toThreeSpace'
 import type { GeometryData } from '@/generation/geometryTypes'
@@ -7,14 +7,23 @@ import type { GeometryData } from '@/generation/geometryTypes'
 /**
  * Draped-layer height stacking (kept in sync with LAND_USE_Y_EPSILON /
  * WATER_Y_EPSILON in generation/landUseGeometry.ts): terrain < land-use <
- * water < road outline (sidewalk) < road surface < road centerline. Each
- * gap is wide — not just a few centimeters — because two *different*
- * layers rarely sample terrain height at exactly the same (x,y) point
- * (a land-use polygon's edge vs. a road's offset edge, for instance), so
- * on sloped real terrain a small gap can still be crossed by the slope
+ * road outline (sidewalk) < road surface < road centerline. Each gap is
+ * wide — not just a few centimeters — because two *different* layers
+ * rarely sample terrain height at exactly the same (x,y) point (a
+ * land-use polygon's edge vs. a road's offset edge, for instance), so on
+ * sloped real terrain a small gap can still be crossed by the slope
  * itself between those two sample points, not just by float/GPU
- * precision. A generous margin is what actually keeps roads reliably on
- * top everywhere, not just usually.
+ * precision. A generous margin, plus the depthTest-off rendering in
+ * scene/Roads.tsx, is what actually keeps roads reliably on top of
+ * terrain/land-use everywhere, not just usually.
+ *
+ * Water is a special case, not just another rung on this ladder: a real
+ * road only belongs above water where it's actually a bridge (OSM's
+ * `bridge` tag — see isBridgeRoad below). scene/Roads.tsx renders
+ * bridge and non-bridge roads as separate mesh sets so non-bridge roads
+ * paint *before* water (letting water's normal depth test show through
+ * over any incidental overlap) while bridge roads paint *after* it
+ * (always winning, like the rest of this stack).
  */
 const ROAD_OUTLINE_Y_EPSILON = 0.35
 const ROAD_SURFACE_Y_EPSILON = 0.7
@@ -28,8 +37,14 @@ const CENTERLINE_DASH_LENGTH_M = 3
 const CENTERLINE_GAP_LENGTH_M = 3
 
 /** Footways/paths are already pedestrian space — they get neither a painted centerline nor a separate sidewalk outline. */
-function isDecoratedRoad(kind: RoadKind): boolean {
-  return kind !== 'footway' && kind !== 'path'
+function isDecoratedRoad(road: Road): boolean {
+  return road.kind !== 'footway' && road.kind !== 'path'
+}
+
+/** OSM's `bridge` tag (any value other than absent/"no") marks a way as physically elevated above whatever it crosses — see scene/Roads.tsx for why that matters for draw order against water. */
+function isBridgeRoad(road: Road): boolean {
+  const bridge = road.tags.bridge
+  return bridge !== undefined && bridge !== 'no'
 }
 
 function closedRing(positions: number[], normals: number[], uvs: number[], indices: number[]) {
@@ -66,7 +81,7 @@ function buildRibbonGeometry(
   terrain: TerrainPatch,
   halfWidthFor: (road: Road) => number,
   yEpsilon: number,
-  filter: (kind: RoadKind) => boolean = () => true,
+  filter: (road: Road) => boolean = () => true,
 ): GeometryData {
   const positions: number[] = []
   const normals: number[] = []
@@ -75,7 +90,7 @@ function buildRibbonGeometry(
   const ring = closedRing(positions, normals, uvs, indices)
 
   for (const road of roads) {
-    if (!filter(road.kind)) continue
+    if (!filter(road)) continue
     const line = road.centerline
     if (line.length < 2) continue
 
@@ -116,27 +131,38 @@ function buildRibbonGeometry(
  * The dark road surface. Deliberately narrower than the outline layer
  * beneath it (see buildRoadOutlineGeometry) so that layer only shows
  * through as a margin on either side rather than being fully covered.
+ * `bridgesOnly` splits the result into the bridge/non-bridge road sets
+ * scene/Roads.tsx renders on either side of water in the paint order —
+ * pass the same value to buildRoadOutlineGeometry/buildRoadCenterlineGeometry
+ * for a matching pair of layers.
  */
-export function buildRoadsGeometry(roads: Road[], terrain: TerrainPatch): GeometryData {
-  return buildRibbonGeometry(roads, terrain, (road) => road.widthMeters / 2, ROAD_SURFACE_Y_EPSILON)
+export function buildRoadsGeometry(roads: Road[], terrain: TerrainPatch, bridgesOnly: boolean): GeometryData {
+  return buildRibbonGeometry(
+    roads,
+    terrain,
+    (road) => road.widthMeters / 2,
+    ROAD_SURFACE_Y_EPSILON,
+    (road) => isBridgeRoad(road) === bridgesOnly,
+  )
 }
 
 /**
  * A wider grey ribbon draped *below* the road surface, standing in for a
- * sidewalk/curb margin. It's one merged mesh for every road, at a single
- * shared height — so at intersections, where several roads' wide outline
- * ribbons overlap each other, they simply blend into one continuous grey
- * area rather than showing seams, and the (separately drawn, higher)
- * road surfaces on top cleanly hide the parts of the outline that are
+ * sidewalk/curb margin. It's one merged mesh for every (non-footway)
+ * road in the requested bridge/non-bridge set, at a single shared height
+ * — so at intersections, where several roads' wide outline ribbons
+ * overlap each other, they simply blend into one continuous grey area
+ * rather than showing seams, and the (separately drawn, higher) road
+ * surfaces on top cleanly hide the parts of the outline that are
  * actually driven on, leaving only the outer margin visible.
  */
-export function buildRoadOutlineGeometry(roads: Road[], terrain: TerrainPatch): GeometryData {
+export function buildRoadOutlineGeometry(roads: Road[], terrain: TerrainPatch, bridgesOnly: boolean): GeometryData {
   return buildRibbonGeometry(
     roads,
     terrain,
     (road) => road.widthMeters / 2 + SIDEWALK_WIDTH_M,
     ROAD_OUTLINE_Y_EPSILON,
-    isDecoratedRoad,
+    (road) => isDecoratedRoad(road) && isBridgeRoad(road) === bridgesOnly,
   )
 }
 
@@ -180,7 +206,7 @@ function walkDashSegments(
 }
 
 /** The yellow dashed centerline painted on top of the road surface. */
-export function buildRoadCenterlineGeometry(roads: Road[], terrain: TerrainPatch): GeometryData {
+export function buildRoadCenterlineGeometry(roads: Road[], terrain: TerrainPatch, bridgesOnly: boolean): GeometryData {
   const positions: number[] = []
   const normals: number[] = []
   const uvs: number[] = []
@@ -189,7 +215,7 @@ export function buildRoadCenterlineGeometry(roads: Road[], terrain: TerrainPatch
   const halfWidth = CENTERLINE_DASH_WIDTH_M / 2
 
   for (const road of roads) {
-    if (!isDecoratedRoad(road.kind)) continue
+    if (!isDecoratedRoad(road) || isBridgeRoad(road) !== bridgesOnly) continue
     if (road.centerline.length < 2) continue
 
     walkDashSegments(road.centerline, CENTERLINE_DASH_LENGTH_M, CENTERLINE_GAP_LENGTH_M, (a, b) => {
