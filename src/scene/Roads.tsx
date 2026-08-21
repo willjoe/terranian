@@ -7,11 +7,14 @@ import type { Road, TerrainPatch } from '@/world/schema'
 
 /**
  * Three layers per set of roads, each its own merged mesh: a wide grey
- * outline standing in for a sidewalk (draped lowest, so at intersections
- * overlapping outlines just blend together rather than showing seams —
- * see generation/roadGeometry.ts), the dark road surface on top of that
- * (narrower, so the outline only peeks out as a margin), and a dashed
- * yellow centerline painted on top of the surface.
+ * outline box standing in for a sidewalk (draped lowest, so at
+ * intersections overlapping outlines just blend together rather than
+ * showing seams — see generation/roadGeometry.ts), the dark road surface
+ * box on top of that (narrower, so the outline only peeks out as a
+ * margin), and a dashed yellow centerline painted on top of the surface.
+ * The outline and surface are both extruded ROAD_BOX_HEIGHT_M deep rather
+ * than flat planes, so a bridge's deck and sidewalk read as real elevated
+ * structure instead of paper-thin sheets floating in midair.
  *
  * Rendered twice — once for non-bridge roads, once for roads OSM tags (or
  * geometry, see world/bridges.ts) as a bridge (`isBridgeRoad` in
@@ -56,6 +59,7 @@ function RoadOutline({ roads, terrain, bridgesOnly }: { roads: Road[]; terrain: 
     <mesh
       geometry={geometry}
       receiveShadow
+      castShadow
       renderOrder={bridgesOnly ? RENDER_ORDER.bridgeRoadOutline : RENDER_ORDER.roadOutline}
     >
       <meshStandardMaterial color="#9a9a9a" side={DoubleSide} />
@@ -69,7 +73,12 @@ function RoadSurface({ roads, terrain, bridgesOnly }: { roads: Road[]; terrain: 
   if (geometry.index === null || geometry.index.count === 0) return null
 
   return (
-    <mesh geometry={geometry} receiveShadow renderOrder={bridgesOnly ? RENDER_ORDER.bridgeRoads : RENDER_ORDER.roads}>
+    <mesh
+      geometry={geometry}
+      receiveShadow
+      castShadow
+      renderOrder={bridgesOnly ? RENDER_ORDER.bridgeRoads : RENDER_ORDER.roads}
+    >
       <meshStandardMaterial color="#333333" side={DoubleSide} />
     </mesh>
   )

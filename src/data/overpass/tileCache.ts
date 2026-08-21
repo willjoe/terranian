@@ -83,10 +83,25 @@ async function loadTile(t: TileCoord): Promise<OverpassElement[]> {
  * already covered. A single OSM way spanning multiple tiles comes back
  * (in full) from each tile query that touches it, so results are
  * deduplicated by element id when tiles are merged.
+ *
+ * Tiles are loaded one at a time, not via Promise.all — GENERATION_RADIUS_M
+ * produces a bbox only slightly smaller than TILE_SIZE_DEG itself, so
+ * almost any picked point straddles a tile boundary and a single
+ * generation typically spans 2-4 tiles. Firing them all at once means
+ * several requests hitting the very same shared public Overpass mirror
+ * simultaneously (each tile's own fallback logic tries the mirrors in the
+ * same fixed order on a cache miss) — exactly the kind of burst that trips
+ * a mirror's rate limiting. Sequential keeps this app's footprint on that
+ * free infrastructure to one request at a time; already-cached tiles
+ * (the common case after the first generation in an area) still resolve
+ * effectively instantly, so this only adds latency on a genuine miss.
  */
 export async function fetchOverpassDataCached(bbox: BBox): Promise<OverpassResponse> {
   const tiles = tilesCoveringBBox(bbox)
-  const allElements = await Promise.all(tiles.map(loadTile))
+  const allElements: OverpassElement[][] = []
+  for (const tile of tiles) {
+    allElements.push(await loadTile(tile))
+  }
 
   const byId = new Map<string, OverpassElement>()
   for (const elements of allElements) {

@@ -9,6 +9,18 @@ import type { GeometryData } from '@/generation/geometryTypes'
 const GLASS_HEIGHT_THRESHOLD_M = 28
 
 /**
+ * Walls now extrude this far below groundHeight too — a basement level —
+ * with its own floor cap at the bottom (see addBuilding), so a building
+ * is a fully closed box rather than an open-bottomed shell resting on the
+ * ground. Same reasoning as ROAD_BOX_HEIGHT_M in generation/roadGeometry.ts:
+ * normally buried and invisible, but keeps the building solid-looking
+ * (no visible hollow interior) if anything ever exposes its underside —
+ * uneven terrain under a large footprint, or a future underground/tunnel
+ * view.
+ */
+const BUILDING_BASEMENT_DEPTH_M = 10
+
+/**
  * Facade style codes carried per-vertex in `facadeParams.y`, read by the
  * shader in scene/buildingFacadeMaterial.ts. The roof codes are offset
  * from their matching wall code by ROOF_STYLE_OFFSET so a roof always
@@ -127,6 +139,7 @@ function addBuilding(
   // building actually sits regardless of a few outlier corners.
   const groundHeight = median(ring.map((p) => sampleTerrainHeight(terrain, p.x, p.y)))
   const roofHeight = groundHeight + building.heightMeters
+  const basementHeight = groundHeight - BUILDING_BASEMENT_DEPTH_M
 
   for (let i = 0; i < ring.length; i++) {
     const p0 = ring[i]
@@ -134,8 +147,8 @@ function addBuilding(
 
     const wallStart = positions.length / 3
     for (const [p, h] of [
-      [p0, groundHeight],
-      [p1, groundHeight],
+      [p0, basementHeight],
+      [p1, basementHeight],
       [p1, roofHeight],
       [p0, roofHeight],
     ] as const) {
@@ -147,9 +160,13 @@ function addBuilding(
     const edgeLen = Math.hypot(dx, dy) || 1
     const nx = dy / edgeLen
     const nz = dx / edgeLen
+    // V stays 0 at ground level (negative into the basement) so the
+    // above-ground facade window pattern is unchanged from before the
+    // basement existed — only the newly-added portion below grade extends
+    // the same real-meter-scaled texture down past V=0.
     const wallUvs: [number, number][] = [
-      [0, 0],
-      [edgeLen, 0],
+      [0, -BUILDING_BASEMENT_DEPTH_M],
+      [edgeLen, -BUILDING_BASEMENT_DEPTH_M],
       [edgeLen, building.heightMeters],
       [0, building.heightMeters],
     ]
@@ -176,4 +193,18 @@ function addBuilding(
     facadeParams.push(seed, style + ROOF_STYLE_OFFSET)
   }
   for (const t of roofTris) indices.push(roofStart + t)
+
+  // Basement floor cap — same triangulation as the roof, just at
+  // basementHeight with a downward normal, closing the box on the bottom
+  // (see BUILDING_BASEMENT_DEPTH_M). Reuses the roof's flat, unlit facade
+  // style since it's the same kind of unwindowed cap surface.
+  const floorStart = positions.length / 3
+  for (const p of ring) {
+    positions.push(...toThreeVec3(p, basementHeight))
+    normals.push(0, -1, 0)
+    uvs.push(0, 0)
+    facadeUv.push(0, 0)
+    facadeParams.push(seed, style + ROOF_STYLE_OFFSET)
+  }
+  for (const t of roofTris) indices.push(floorStart + t)
 }

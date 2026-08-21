@@ -8,6 +8,7 @@ import {
   stepCarPhysics,
   type CarState,
 } from '@/generation/carPhysics'
+import { computeRoadSurfaceColliders } from '@/generation/roadGeometry'
 import { toThreeVec3 } from '@/generation/toThreeSpace'
 import { CarMesh } from '@/scene/CarMesh'
 import type { WorldModel } from '@/world/schema'
@@ -30,7 +31,14 @@ export function DrivingRig({ world }: { world: WorldModel }) {
   const stateRef = useRef<CarState>(createInitialCarState(world.terrain))
   const cameraInitializedRef = useRef(false)
 
-  const buildingColliders = useMemo(() => computeBuildingColliders(world.buildings), [world.buildings])
+  const buildingColliders = useMemo(
+    () => computeBuildingColliders(world.buildings, world.terrain),
+    [world.buildings, world.terrain],
+  )
+  const roadColliders = useMemo(
+    () => computeRoadSurfaceColliders(world.roads, world.terrain),
+    [world.roads, world.terrain],
+  )
   const worldRadius = Math.max(world.boundsMeters.width, world.boundsMeters.depth) / 2
 
   // The arrow keys drive the car, so they shouldn't also scroll the page —
@@ -53,6 +61,7 @@ export function DrivingRig({ world }: { world: WorldModel }) {
       dt,
       world.terrain,
       buildingColliders,
+      roadColliders,
       worldRadius,
     )
     stateRef.current = next
