@@ -13,34 +13,24 @@ import type { Road, TerrainPatch } from '@/world/schema'
  * (narrower, so the outline only peeks out as a margin), and a dashed
  * yellow centerline painted on top of the surface.
  *
- * Rendered twice — once for non-bridge roads, once for roads OSM tags as
- * a bridge (`isBridgeRoad` in generation/roadGeometry.ts) — because the
- * two sets belong on opposite sides of water in the paint order (see
- * renderOrder.ts): a real road only belongs above water where it's
- * actually a bridge, so a non-bridge road painted *before* water can
- * still be covered by water's own depth-tested draw if they incidentally
- * overlap, while a bridge road painted *after* water always wins.
- *
- * All six meshes render with depthTest off. The Y-epsilon draping in
- * generation/roadGeometry.ts only guarantees roads sit above terrain at
- * the exact points *roads themselves* sample — but land-use polygons
- * (and the terrain mesh's own large triangles) sample terrain height at
- * different, more sparsely-spaced points, so on real sloped ground their
- * interpolated surface can still poke up above a road that cuts across
- * the same slope, no matter how big that epsilon is made. Skipping the
- * depth test makes roads win unconditionally against terrain/land-use
- * instead of only "usually": since those always paint first (see
- * renderOrder.ts) and non-bridge roads don't write depth either, the
- * buildings/trees painted afterward still correctly test against the
- * real terrain depth beneath them, so a building still properly occludes
- * a non-bridge road running behind it.
- *
- * Bridge roads are the one exception: they *do* write depth, using their
- * real (often tens of meters, per generation/roadGeometry.ts's
- * bridgeHeightAt) elevation above terrain. A road arching over a
- * building only visibly clears it if buildings drawn afterward lose
- * their normal depth test at those pixels — which requires the bridge to
- * have actually written its true, higher depth there first.
+ * Rendered twice — once for non-bridge roads, once for roads OSM tags (or
+ * geometry, see world/bridges.ts) as a bridge (`isBridgeRoad` in
+ * generation/roadGeometry.ts) — renderOrder.ts still paints them on
+ * opposite sides of water as a reasonable default, though it's no longer
+ * load-bearing: every mesh here uses normal depthTest/depthWrite, the
+ * same as terrain/land-use/water/buildings, so what's actually in front
+ * is decided by real 3D depth rather than paint order. An earlier version
+ * disabled depthTest on roads to force them "always on top," which did
+ * stop terrain/land-use from bleeding over flat roads, but it also made
+ * roads a visually separate layer from everything else — geometry that
+ * should genuinely intersect (a building base against a road edge, a
+ * bridge deck against the water it clears) could clip or fail to clip
+ * inconsistently, since roads weren't really occupying the same depth
+ * space as their surroundings. generation/roadGeometry.ts's Y-epsilon
+ * gaps were widened enough that ordinary flat roads still reliably beat
+ * terrain/land-use/water under normal depth testing, and a real bridge's
+ * elevation (often tens of meters, once it reaches an obstacle) settles
+ * everything else on its own.
  */
 export function Roads({ roads, terrain }: { roads: Road[]; terrain: TerrainPatch }) {
   if (roads.length === 0) return null
@@ -68,7 +58,7 @@ function RoadOutline({ roads, terrain, bridgesOnly }: { roads: Road[]; terrain: 
       receiveShadow
       renderOrder={bridgesOnly ? RENDER_ORDER.bridgeRoadOutline : RENDER_ORDER.roadOutline}
     >
-      <meshStandardMaterial color="#9a9a9a" side={DoubleSide} depthTest={false} depthWrite={bridgesOnly} />
+      <meshStandardMaterial color="#9a9a9a" side={DoubleSide} />
     </mesh>
   )
 }
@@ -80,7 +70,7 @@ function RoadSurface({ roads, terrain, bridgesOnly }: { roads: Road[]; terrain: 
 
   return (
     <mesh geometry={geometry} receiveShadow renderOrder={bridgesOnly ? RENDER_ORDER.bridgeRoads : RENDER_ORDER.roads}>
-      <meshStandardMaterial color="#333333" side={DoubleSide} depthTest={false} depthWrite={bridgesOnly} />
+      <meshStandardMaterial color="#333333" side={DoubleSide} />
     </mesh>
   )
 }
@@ -103,7 +93,7 @@ function RoadCenterline({
       geometry={geometry}
       renderOrder={bridgesOnly ? RENDER_ORDER.bridgeRoadCenterline : RENDER_ORDER.roadCenterline}
     >
-      <meshStandardMaterial color="#ffd54a" side={DoubleSide} depthTest={false} depthWrite={bridgesOnly} />
+      <meshStandardMaterial color="#ffd54a" side={DoubleSide} />
     </mesh>
   )
 }

@@ -7,18 +7,24 @@ import type { GeometryData } from '@/generation/geometryTypes'
 /**
  * Draped-layer stacking order (each well clear of the others so adjacent
  * polygons — e.g. a park right at a lake's shore — don't z-fight at their
- * shared boundary): terrain(0) < land-use < water, with non-bridge roads
- * painted between land-use and water and bridge roads painted above water
- * (see renderOrder.ts and scene/Roads.tsx for why). Kept in sync with the
- * renderOrder values set in scene/LandUse.tsx, Water.tsx, Roads.tsx.
+ * shared boundary): terrain(0) < land-use < road outline/surface/centerline
+ * (generation/roadGeometry.ts) < water. Every draped layer uses normal
+ * depthTest/depthWrite (scene/LandUse.tsx, Water.tsx, Roads.tsx) rather
+ * than a paint-order trick, so this Y-epsilon ordering is what actually
+ * decides visibility — the same real depth space buildings/trees also
+ * participate in, so nothing here clips against them inconsistently.
+ * Water sits above the road layers so a non-bridge road that merely
+ * grazes a water polygon's edge still loses to it — see
+ * generation/roadGeometry.ts's own comment for the bridge case.
  */
 const LAND_USE_Y_EPSILON = 0.05
 /**
  * Water sits slightly *above* grade, like every other draped layer here —
  * not below it (see LAND_USE_Y_EPSILON's note on why "below" hides it
- * entirely behind the terrain mesh).
+ * entirely behind the terrain mesh) — and above ROAD_CENTERLINE_Y_EPSILON
+ * in generation/roadGeometry.ts, the highest of the road layers.
  */
-const WATER_Y_EPSILON = 0.2
+const WATER_Y_EPSILON = 1.5
 
 export function buildLandUseGeometry(areas: LandUseArea[], terrain: TerrainPatch, kind: LandUseKind): GeometryData {
   const positions: number[] = []

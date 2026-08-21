@@ -8,31 +8,30 @@ import { bridgeHeightAt } from '@/world/bridges'
 /**
  * Draped-layer height stacking (kept in sync with LAND_USE_Y_EPSILON /
  * WATER_Y_EPSILON in generation/landUseGeometry.ts): terrain < land-use <
- * road outline (sidewalk) < road surface < road centerline. Each gap is
- * wide — not just a few centimeters — because two *different* layers
- * rarely sample terrain height at exactly the same (x,y) point (a
+ * road outline (sidewalk) < road surface < road centerline < water. Every
+ * layer, roads included, uses normal depthTest/depthWrite (scene/Roads.tsx)
+ * rather than a paint-order trick, so these gaps are what actually decide
+ * what's on top — real depth, the same as buildings/trees participate in.
+ * Each gap is wide — not just a few centimeters — because two *different*
+ * layers rarely sample terrain height at exactly the same (x,y) point (a
  * land-use polygon's edge vs. a road's offset edge, for instance), so on
  * sloped real terrain a small gap can still be crossed by the slope
  * itself between those two sample points, not just by float/GPU
- * precision. A generous margin, plus the depthTest-off rendering in
- * scene/Roads.tsx, is what actually keeps roads reliably on top of
- * terrain/land-use everywhere, not just usually.
+ * precision.
  *
- * Water is a special case, not just another rung on this ladder: a real
- * road only belongs above water where it's actually a bridge (OSM's
- * `bridge` tag, or a geometrically-detected water/building crossing —
- * see isBridgeRoad below and world/bridges.ts). scene/Roads.tsx renders
- * bridge and non-bridge roads as separate mesh sets so non-bridge roads
- * paint *before* water (letting water's normal depth test show through
- * over any incidental overlap) while bridge roads paint *after* it
- * (always winning, like the rest of this stack) — and where a road's
- * bridgeSpans give it a genuine elevated arch (see bridgeHeightAt calls
- * below), that real height difference is usually enough on its own to
- * correctly clear whatever it's crossing.
+ * Water sits *above* the road layers specifically so an ordinary
+ * (non-bridge) road that happens to graze a water polygon's edge still
+ * loses to it — a real road only belongs above water where it's actually
+ * a bridge (OSM's `bridge` tag, or a geometrically-detected water/building
+ * crossing — see isBridgeRoad below and world/bridges.ts). A bridge road's
+ * own bridgeSpans elevation (see bridgeHeightAt calls below) reaches its
+ * full required clearance — routinely tens of meters for a real water
+ * crossing — exactly at the water's edge, so it clears WATER_Y_EPSILON by
+ * a comfortable margin well before the two could compete on epsilon alone.
  */
-const ROAD_OUTLINE_Y_EPSILON = 0.35
-const ROAD_SURFACE_Y_EPSILON = 0.7
-const ROAD_CENTERLINE_Y_EPSILON = 0.75
+const ROAD_OUTLINE_Y_EPSILON = 0.6
+const ROAD_SURFACE_Y_EPSILON = 1.0
+const ROAD_CENTERLINE_Y_EPSILON = 1.2
 
 /** How far the grey outline (sidewalk) extends past each edge of the road surface itself. */
 const SIDEWALK_WIDTH_M = 1.5
