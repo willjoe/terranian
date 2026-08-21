@@ -151,3 +151,40 @@ button:disabled {
   border: 1px solid var(--danger-border);
   color: var(--danger-text);
 }
+
+.mode-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin: 0;
+}
+
+.mode-selector:disabled,
+.mode-selector[disabled] {
+  opacity: 0.5;
+}
+
+.mode-selector legend {
+  padding: 0 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.mode-selector-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.mode-selector-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}

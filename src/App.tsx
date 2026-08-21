@@ -2,6 +2,7 @@ import { LocationPicker } from '@/app/LocationPicker'
 import { LocationSearch } from '@/app/LocationSearch'
 import { GenerateButton } from '@/app/GenerateButton'
 import { StatusOverlay } from '@/app/StatusOverlay'
+import { ModeSelector } from '@/app/ModeSelector'
 import { WorldScene } from '@/scene/WorldScene'
 import { useWorldStore } from '@/store/worldStore'
 
@@ -22,6 +23,7 @@ export function App() {
         </div>
         <GenerateButton />
         <StatusOverlay />
+        <ModeSelector />
       </aside>
       <main className="app-viewport">
         {worldModel ? (

@@ -2,7 +2,7 @@
 
 Generate a theoretical 3D representation of any real-world place, on the fly, in the browser — built from live OpenStreetMap data (buildings, roads, land use) and real elevation data (Mapbox Terrain-RGB). It isn't a pixel-perfect reconstruction; it's a plausible procedural rendering driven by real tags and real terrain shape.
 
-Pick a point on the map (or search a place name), hit **Generate World**, and a 3D scene is built for the ~1km area around it: sloped terrain, extruded buildings, roads, forests (as scattered trees), farmland, and water.
+Pick a point on the map (or search a place name), hit **Generate World**, and a 3D scene is built for the ~1km area around it: sloped terrain, extruded buildings, roads, forests (as scattered trees), farmland, and water. A view-mode radio in the sidebar switches between **Overview** (free-orbit camera) and **Driving Mode** — drive a car through the generated world with the arrow keys (↑ throttle, ↓ brake/reverse, ← → steer), with real momentum, gravity, terrain-slope-driven jumps, and collision against every building, capped at 150 mph (`src/generation/carPhysics.ts`, `src/scene/DrivingRig.tsx`).
 
 ## Setup
 
